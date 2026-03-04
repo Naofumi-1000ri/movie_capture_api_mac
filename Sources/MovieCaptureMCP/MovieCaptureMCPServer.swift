@@ -70,22 +70,27 @@ enum MCPHandlers {
     static func handleListSources(_ args: [String: Value]) async throws -> CallTool.Result {
         let sources = try await screenCaptureManager.availableSources()
 
-        let filterType = args["type"]?.stringValue
+        var filterType = args["type"]?.stringValue
         let filterApp = args["app"]?.stringValue
         let onScreenOnly = args["on_screen_only"]?.boolValue ?? true
+
+        // アプリ名フィルタ指定時はウィンドウのみ表示（ディスプレイとの ID 混同を防止）
+        if filterApp != nil && filterType == nil {
+            filterType = "windows"
+        }
 
         var lines: [String] = []
 
         if filterType == nil || filterType == "displays" {
             lines.append("## Displays")
             for d in sources.displays {
-                lines.append("- ID: \(d.id), \(d.width)x\(d.height)")
+                lines.append("- Display ID: \(d.id), \(d.width)x\(d.height)")
             }
         }
 
         if filterType == nil || filterType == "windows" {
-            lines.append("")
-            lines.append("## Windows")
+            if !lines.isEmpty { lines.append("") }
+            lines.append("## Windows (use window_id with start_recording)")
             var windows = onScreenOnly ? sources.onScreenWindows : sources.windows
             if let app = filterApp {
                 windows = sources.windows(ownedBy: app)
@@ -95,7 +100,10 @@ enum MCPHandlers {
                 let title = w.title ?? "(untitled)"
                 let owner = w.ownerName ?? "(unknown)"
                 let screen = w.isOnScreen ? "on" : "off"
-                lines.append("- ID: \(w.id), [\(owner)] \(title), \(Int(w.frame.width))x\(Int(w.frame.height)), \(screen)screen")
+                lines.append("- Window ID: \(w.id), [\(owner)] \(title), \(Int(w.frame.width))x\(Int(w.frame.height)), \(screen)screen")
+            }
+            if windows.isEmpty {
+                lines.append("  (該当するウィンドウなし)")
             }
         }
 

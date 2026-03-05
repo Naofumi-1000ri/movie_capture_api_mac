@@ -5,7 +5,15 @@ import Foundation
 struct ConfigCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "config",
-        abstract: "設定ファイルの管理"
+        abstract: "設定ファイルの管理",
+        discussion: """
+        録画設定ファイル (~/.moviecapture.yaml) の表示・作成を行います。
+
+        例:
+          moviecapture config show    # 現在の設定を表示
+          moviecapture config create  # デフォルト設定ファイルを作成
+          moviecapture config path    # 設定ファイルのパスを表示
+        """
     )
 
     enum Action: String, ExpressibleByArgument, CaseIterable {

@@ -196,3 +196,7 @@ MovieCapture/
 - **Swift Argument Parser** - CLI フレームワーク
 - **MCP Swift SDK 0.9.0** - Model Context Protocol サーバー
 - **Yams** - YAML 設定ファイル
+
+## ライセンス
+
+[MIT License](LICENSE)

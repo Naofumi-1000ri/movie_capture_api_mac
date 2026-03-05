@@ -30,45 +30,76 @@ swift build
 
 ```bash
 # ディスプレイとウィンドウの一覧
-swift run moviecapture list
+moviecapture list
 
 # ウィンドウのみ
-swift run moviecapture list --windows-only
+moviecapture list windows
 
 # 特定アプリのウィンドウ
-swift run moviecapture list --app Chrome
+moviecapture list --app Chrome
+
+# JSON 形式で出力（AI 連携に便利）
+moviecapture list --json
 ```
 
 ### 録画
 
 ```bash
 # メインディスプレイを録画（Ctrl+C で停止）
-swift run moviecapture record
+moviecapture record
 
 # 5秒間だけ録画
-swift run moviecapture record --duration 5
+moviecapture record --duration 5
 
 # ウィンドウ ID を指定して録画
-swift run moviecapture record --window-id 1234
+moviecapture record --window-id 1234
 
 # アプリ名で検索して録画
-swift run moviecapture record --app Chrome
+moviecapture record --app Chrome
 
 # content-only モード（タイトルバー除外）
-swift run moviecapture record --app Chrome --content-only
+moviecapture record --app Chrome --content-only
 
 # 出力先・コーデック・フォーマット指定
-swift run moviecapture record --output ~/Desktop/demo.mp4 --codec h264 --format mp4 --fps 60
+moviecapture record --output ~/Desktop/demo.mp4 --codec h264 --format mp4 --fps 60
+
+# JSON 形式で結果を出力
+moviecapture record --app Chrome --duration 5 --json
+# → {"duration":5.02,"file":"/Users/.../MovieCapture_2026-03-04.mov","source":"Google Chrome","status":"completed"}
+```
+
+### 録画の制御（別プロセスから）
+
+```bash
+# バックグラウンドで録画開始
+moviecapture record --app Chrome &
+
+# 別ターミナルから状態確認
+moviecapture status
+moviecapture status --json
+
+# 別ターミナルから停止
+moviecapture stop
 ```
 
 ### 設定
 
 ```bash
 # 現在の設定を表示
-swift run moviecapture config show
+moviecapture config show
 
 # 設定ファイルを初期化（~/.moviecapture.yaml）
-swift run moviecapture config init
+moviecapture config create
+```
+
+### JSON 出力（`--json` フラグ）
+
+すべてのコマンドで `--json` フラグが利用可能。AI やスクリプトからのパースに適した出力を得られる。
+
+```bash
+# ソース一覧を JSON で取得 → ウィンドウ ID を抽出 → 録画
+WINDOW_ID=$(moviecapture list --json | python3 -c "import sys,json; print(json.load(sys.stdin)['windows'][0]['id'])")
+moviecapture record --window-id $WINDOW_ID --duration 5 --json
 ```
 
 ## MCP サーバー（AI 連携）
@@ -147,8 +178,8 @@ MovieCapture/
 │   │   ├── ScreenCaptureManager.swift # ScreenCaptureKit ラッパー
 │   │   └── AppInitializer.swift      # CGS セッション初期化
 │   ├── MovieCaptureCLI/        # CLI アプリ
-│   │   ├── Commands/           # list, record, config サブコマンド
-│   │   └── Helpers/            # 権限チェック等
+│   │   ├── Commands/           # list, record, config, status, stop サブコマンド
+│   │   └── Helpers/            # 権限チェック、プロセス状態管理
 │   └── MovieCaptureMCP/        # MCP サーバー
 │       └── Tools/              # ツール定義、ハンドラー
 ├── Tests/

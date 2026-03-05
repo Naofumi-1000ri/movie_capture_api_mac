@@ -47,6 +47,14 @@ Mac専用の画面録画CLIツール + MCPサーバー。GUIなし。
 | `list [displays\|windows\|all]` | キャプチャソース一覧 |
 | `record` | 録画実行 |
 | `config [show\|create\|path]` | 設定管理 |
+| `status` | 録画状態の確認 |
+| `stop` | 実行中の録画を停止 |
+
+### 共通フラグ
+
+| フラグ | 説明 |
+|---|---|
+| `--json` | 機械可読な JSON 形式で出力（list, record, status, stop で利用可能） |
 
 ### 主なCLIオプション（record）
 
@@ -57,12 +65,24 @@ Mac専用の画面録画CLIツール + MCPサーバー。GUIなし。
 --app <name>        アプリ名検索
 --content-only      タイトルバー除外（コンテンツ領域のみ）
 --output / -o       出力ファイルパス
---duration          録画秒数（未指定時はCtrl+Cで停止）
+--duration          録画秒数（未指定時はCtrl+C or `moviecapture stop` で停止）
 --fps               フレームレート
 --codec             コーデック (h264, h265)
 --format            フォーマット (mov, mp4)
 --config            設定ファイルパス
+--json              JSON形式で結果を出力
 ```
+
+### プロセス間制御
+
+別ターミナルからの録画制御は PID ファイル + 状態ファイルで実現:
+
+| ファイル | 用途 |
+|---|---|
+| `~/.moviecapture.pid` | 録画プロセスの PID |
+| `~/.moviecapture.state.json` | 録画状態（ソース名、開始時刻等） |
+
+`record` コマンドが開始時に書き込み、終了時に削除。`status` / `stop` コマンドがこれを参照する。
 
 ## ファイル構成
 
@@ -87,10 +107,15 @@ MovieCapture/
 │   │   └── RecordingManager.swift
 │   └── MovieCaptureCLI/
 │       ├── MovieCaptureCLI.swift
-│       └── Commands/
-│           ├── ListCommand.swift
-│           ├── RecordCommand.swift
-│           └── ConfigCommand.swift
+│       ├── Commands/
+│       │   ├── ListCommand.swift
+│       │   ├── RecordCommand.swift
+│       │   ├── ConfigCommand.swift
+│       │   ├── StatusCommand.swift
+│       │   └── StopCommand.swift
+│       └── Helpers/
+│           ├── PermissionCheck.swift
+│           └── ProcessState.swift
 ├── Tests/
 │   ├── CaptureEngineTests/
 │   │   ├── Mocks/MockScreenCaptureProvider.swift
@@ -126,5 +151,6 @@ MovieCapture/
 
 - [x] Phase 1: CaptureEngine基盤 + 最小限CLI + テスト（45テスト通過）
 - [ ] Phase 2: 実機統合テスト・録画動作確認
-- [ ] Phase 3: MCPサーバー
+- [x] Phase 3: MCPサーバー
+- [x] Phase 3.5: CLI拡充（--json出力、status/stop コマンド、help改善）
 - [ ] Phase 4: 品質向上（HDR、カーソルハイライト等）

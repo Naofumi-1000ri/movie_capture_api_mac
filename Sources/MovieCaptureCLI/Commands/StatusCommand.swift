@@ -49,12 +49,16 @@ struct StatusCommand: AsyncParsableCommand {
                     status: state.status,
                     pid: Int(state.pid),
                     source: state.source,
-                    elapsed: state.elapsedSeconds
+                    elapsed: state.elapsedSeconds,
+                    outputPath: state.outputPath
                 )
             } else {
                 print("録画中（経過: \(elapsed)秒）")
                 print("  ソース: \(state.source)")
                 print("  PID: \(state.pid)")
+                if let outputPath = state.outputPath {
+                    print("  出力先: \(outputPath)")
+                }
             }
         } else {
             if json {
@@ -65,11 +69,18 @@ struct StatusCommand: AsyncParsableCommand {
         }
     }
 
-    private func printJSON(status: String, pid: Int? = nil, source: String? = nil, elapsed: Double? = nil) {
+    private func printJSON(
+        status: String,
+        pid: Int? = nil,
+        source: String? = nil,
+        elapsed: Double? = nil,
+        outputPath: String? = nil
+    ) {
         var dict: [String: Any] = ["status": status]
         if let pid = pid { dict["pid"] = pid }
         if let source = source { dict["source"] = source }
         if let elapsed = elapsed { dict["elapsed"] = (elapsed * 100).rounded() / 100 }
+        if let outputPath = outputPath { dict["outputPath"] = outputPath }
         if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
            let str = String(data: data, encoding: .utf8) {
             print(str)

@@ -51,5 +51,10 @@ let package = Package(
             dependencies: ["MovieCaptureCLI", "CaptureEngine"],
             path: "Tests/MovieCaptureCLITests"
         ),
+        .testTarget(
+            name: "MovieCaptureMCPTests",
+            dependencies: ["MovieCaptureMCP", "CaptureEngine"],
+            path: "Tests/MovieCaptureMCPTests"
+        ),
     ]
 )

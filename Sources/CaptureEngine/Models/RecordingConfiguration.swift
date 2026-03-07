@@ -69,10 +69,27 @@ public struct RecordingConfiguration: Codable, Sendable, Equatable {
             .appendingPathExtension(fileFormat.rawValue)
     }
 
-    private func defaultFileName() -> String {
+    /// fileName が未指定の場合のみ、日時ベースのファイル名を固定して返す
+    @discardableResult
+    public mutating func assignGeneratedFileNameIfNeeded(date: Date = Date()) -> String {
+        if let fileName {
+            return fileName
+        }
+
+        let generatedName = Self.generatedFileName(for: date)
+        fileName = generatedName
+        return generatedName
+    }
+
+    /// 指定日時から生成されるデフォルトファイル名
+    public static func generatedFileName(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        return "MovieCapture_\(formatter.string(from: Date()))"
+        return "MovieCapture_\(formatter.string(from: date))"
+    }
+
+    private func defaultFileName() -> String {
+        Self.generatedFileName(for: Date())
     }
 
     // MARK: - YAML serialization

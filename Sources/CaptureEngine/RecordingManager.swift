@@ -58,27 +58,7 @@ public final class RecordingManager: @unchecked Sendable {
         for source: CaptureSource,
         content: SCShareableContent
     ) throws -> SCContentFilter {
-        switch source {
-        case .display(let displayInfo):
-            guard let scDisplay = content.displays.first(where: { $0.displayID == displayInfo.id }) else {
-                throw CaptureError.noDisplayFound
-            }
-            return SCContentFilter(display: scDisplay, excludingWindows: [])
-
-        case .window(let windowInfo), .windowContentOnly(let windowInfo):
-            guard let scWindow = content.windows.first(where: { $0.windowID == windowInfo.id }) else {
-                throw CaptureError.windowNotFound(windowInfo.title ?? "ID:\(windowInfo.id)")
-            }
-            // desktopIndependentWindowは別Space/フルスクリーンでも録画可能
-            // CGS初期化はstartRecording内でMainActor経由で事前に行う
-            return SCContentFilter(desktopIndependentWindow: scWindow)
-
-        case .area(let displayInfo, _):
-            guard let scDisplay = content.displays.first(where: { $0.displayID == displayInfo.id }) else {
-                throw CaptureError.noDisplayFound
-            }
-            return SCContentFilter(display: scDisplay, excludingWindows: [])
-        }
+        try CaptureSourceSetup.buildContentFilter(for: source, content: content)
     }
 
     /// ソースと設定からSCStreamConfigurationを構築
@@ -90,34 +70,11 @@ public final class RecordingManager: @unchecked Sendable {
         streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(configuration.frameRate))
         streamConfig.showsCursor = true
         streamConfig.capturesAudio = configuration.captureSystemAudio
-
-        switch source {
-        case .window:
-            // desktopIndependentWindow: キャンバスがウィンドウサイズなのでクロップ不要
-            break
-
-        case .windowContentOnly(let windowInfo):
-            // desktopIndependentWindow: ウィンドウローカル座標(0,0始まり)
-            // タイトルバー分だけY方向にオフセットしてクロップ
-            let tbh = configuration.titleBarHeight ?? WindowInfo.defaultTitleBarHeight
-            let contentRect = windowInfo.contentRect(titleBarHeight: CGFloat(tbh))
-            streamConfig.sourceRect = CGRect(
-                x: 0,
-                y: CGFloat(tbh),
-                width: contentRect.width,
-                height: contentRect.height
-            )
-            streamConfig.width = Int(contentRect.width) * 2  // Retina
-            streamConfig.height = Int(contentRect.height) * 2
-
-        case .area(_, let rect):
-            streamConfig.sourceRect = rect
-            streamConfig.width = Int(rect.width) * 2
-            streamConfig.height = Int(rect.height) * 2
-
-        case .display:
-            break
-        }
+        CaptureSourceSetup.configureGeometry(
+            for: source,
+            in: streamConfig,
+            titleBarHeight: CGFloat(configuration.titleBarHeight ?? WindowInfo.defaultTitleBarHeight)
+        )
 
         return streamConfig
     }

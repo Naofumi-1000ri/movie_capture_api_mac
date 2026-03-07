@@ -50,11 +50,26 @@ Mac専用の画面録画CLIツール + MCPサーバー。GUIなし。
 | `status` | 録画状態の確認 |
 | `stop` | 実行中の録画を停止 |
 
+### MCP（moviecapture-mcp）
+
+| ツール | 説明 |
+|---|---|
+| `list_sources` | JSON でディスプレイ・ウィンドウ候補を返す |
+| `resolve_target` | app / window / ID 指定を一意解決。曖昧時は candidates を返す |
+| `capture_still` | JSON と PNG image content で静止画プレビューを返す。JSON には `recognized_text` / `matched_query_terms` / `matched_query_terms_in_target_metadata` / `preview_match_status` / `dominant_colors` / `is_likely_blank` を含む |
+| `start_recording` | JSON で録画開始結果を返す。曖昧一致では録画しない。preview 未確認や weak match は `advisories` に warning を載せる |
+| `stop_recording` | JSON で停止結果を返す |
+| `get_status` | JSON で現在状態を返す |
+
+AI向けの推奨フローは `list_sources` → `resolve_target` → `capture_still` → `start_recording` → `get_status` / `stop_recording`。
+`capture_still` で `preview_match_status` を活かすには、`app` / `window` を使った selector をそのまま渡すのが扱いやすい。
+`start_recording` はブロックしないが、preview 未確認や weak match は `advisories` に warning を返す。
+
 ### 共通フラグ
 
 | フラグ | 説明 |
 |---|---|
-| `--json` | 機械可読な JSON 形式で出力（list, record, status, stop で利用可能） |
+| `--json` | 機械可読な JSON 形式で出力（全コマンドで利用可能） |
 
 ### 主なCLIオプション（record）
 
@@ -73,6 +88,8 @@ Mac専用の画面録画CLIツール + MCPサーバー。GUIなし。
 --json              JSON形式で結果を出力
 ```
 
+`record --duration` 実行中でも `Ctrl+C` / `moviecapture stop` で安全停止できる。
+
 ### プロセス間制御
 
 別ターミナルからの録画制御は PID ファイル + 状態ファイルで実現:
@@ -80,7 +97,7 @@ Mac専用の画面録画CLIツール + MCPサーバー。GUIなし。
 | ファイル | 用途 |
 |---|---|
 | `~/.moviecapture.pid` | 録画プロセスの PID |
-| `~/.moviecapture.state.json` | 録画状態（ソース名、開始時刻等） |
+| `~/.moviecapture.state.json` | 録画状態（ソース名、開始時刻、予定出力先等） |
 
 `record` コマンドが開始時に書き込み、終了時に削除。`status` / `stop` コマンドがこれを参照する。
 
@@ -126,8 +143,10 @@ MovieCapture/
 │   │   ├── CaptureErrorTests.swift
 │   │   ├── RecordingManagerTests.swift
 │   │   └── MockScreenCaptureProviderTests.swift
-│   └── MovieCaptureCLITests/
-│       └── CLITests.swift
+│   ├── MovieCaptureCLITests/
+│   │   └── CLITests.swift
+│   └── MovieCaptureMCPTests/
+│       └── TargetResolverTests.swift
 └── docs/
     └── DESIGN.md
 ```
@@ -139,6 +158,7 @@ MovieCapture/
 - モデル層（WindowInfo, RecordingConfiguration等）は直接テスト
 - RecordingManagerの状態遷移・バリデーションはモック経由でテスト
 - 実際のScreenCaptureKit統合テストはCI除外の手動テスト
+- MCPのAI向けE2E確認は `scripts/mcp_capture_smoke.py` で実施し、専用 fixture ウィンドウの一意解決、`capture_still` によるプレビュー取得、録画完了、さらに出力フレーム内の fixture 固有色確認まで行う
 
 ## macOS権限
 

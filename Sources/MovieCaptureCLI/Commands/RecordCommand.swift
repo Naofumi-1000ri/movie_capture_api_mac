@@ -1,5 +1,6 @@
 import ArgumentParser
 import CaptureEngine
+import Dispatch
 import Foundation
 
 struct RecordCommand: AsyncParsableCommand {
@@ -14,6 +15,7 @@ struct RecordCommand: AsyncParsableCommand {
           - --duration で秒数を指定（自動停止）
           - Ctrl+C で手動停止
           - 別ターミナルから moviecapture stop で停止
+          - --duration 指定中でも Ctrl+C / moviecapture stop で早期停止可能
 
         例:
           moviecapture record --duration 10             # メインディスプレイを10秒録画
@@ -60,21 +62,38 @@ struct RecordCommand: AsyncParsableCommand {
     var json: Bool = false
 
     mutating func run() async throws {
+        try validateArguments()
+
         // 設定の読み込み
         var configuration = try loadConfiguration()
 
         // CLIオプションで上書き
         if let fps = fps { configuration.frameRate = fps }
-        if let codec = codec, let vc = VideoCodec(rawValue: codec) { configuration.videoCodec = vc }
-        if let format = format, let ff = FileFormat(rawValue: format) { configuration.fileFormat = ff }
+        if let codec {
+            guard let vc = VideoCodec(rawValue: codec) else {
+                throw ValidationError("無効な codec です: \(codec)。h264 または h265 を指定してください。")
+            }
+            configuration.videoCodec = vc
+        }
+        if let format {
+            guard let ff = FileFormat(rawValue: format) else {
+                throw ValidationError("無効な format です: \(format)。mov または mp4 を指定してください。")
+            }
+            configuration.fileFormat = ff
+        }
         if let output = output {
             let url = URL(fileURLWithPath: output)
             configuration.outputDirectory = url.deletingLastPathComponent().path
             configuration.fileName = url.deletingPathExtension().lastPathComponent
-            if let ext = FileFormat(rawValue: url.pathExtension) {
+            if !url.pathExtension.isEmpty {
+                guard let ext = FileFormat(rawValue: url.pathExtension) else {
+                    throw ValidationError("出力ファイル拡張子は mov または mp4 を指定してください: \(url.pathExtension)")
+                }
                 configuration.fileFormat = ext
             }
         }
+        configuration.assignGeneratedFileNameIfNeeded()
+        let outputURL = configuration.outputFileURL()
 
         // バリデーション
         let errors = configuration.validate()
@@ -96,28 +115,41 @@ struct RecordCommand: AsyncParsableCommand {
             status: "recording",
             source: sourceName,
             startTime: startTime,
-            outputPath: nil
+            outputPath: outputURL.path
         ))
 
         // 録画
         let recorder = RecordingManager(screenCaptureProvider: captureManager)
+        let stopMonitor = StopEventMonitor()
+        defer { stopMonitor.cancel() }
         if !json {
-            print("録画を開始します...")
+            print("録画を開始します... -> \(outputURL.path)")
         }
 
         do {
             try await recorder.startRecording(source: source, configuration: configuration)
+            if let duration {
+                stopMonitor.scheduleAutoStop(after: duration)
+            }
 
-            if let duration = duration {
-                if !json {
-                    print("録画中... (\(duration)秒)")
+            if !json {
+                if let duration {
+                    print("録画中... (\(duration)秒後に自動停止。Ctrl+C / moviecapture stop で早期停止可能)")
+                } else {
+                    print("録画中... (Ctrl+C または moviecapture stop で停止)")
                 }
-                try await Task.sleep(for: .seconds(duration))
-            } else {
-                if !json {
-                    print("録画中... (Ctrl+C で停止)")
-                }
-                await waitForInterrupt()
+            }
+
+            let stopReason = await stopMonitor.wait()
+            try? ProcessState.writeState(ProcessState.StateInfo(
+                pid: ProcessInfo.processInfo.processIdentifier,
+                status: "stopping",
+                source: sourceName,
+                startTime: startTime,
+                outputPath: outputURL.path
+            ))
+            if !json, case .interrupt = stopReason {
+                print("停止シグナルを受信しました。録画を終了します...")
             }
 
             let url = try await recorder.stopRecording()
@@ -127,7 +159,13 @@ struct RecordCommand: AsyncParsableCommand {
             ProcessState.cleanup()
 
             if json {
-                try printJSON(status: "completed", file: url.path, duration: elapsed, source: sourceName)
+                try printJSON(
+                    status: "completed",
+                    file: url.path,
+                    duration: elapsed,
+                    source: sourceName,
+                    stopReason: stopReason.jsonValue
+                )
             } else {
                 print("録画完了: \(url.path)")
             }
@@ -135,7 +173,14 @@ struct RecordCommand: AsyncParsableCommand {
             ProcessState.cleanup()
             if json {
                 let elapsed = Date().timeIntervalSince(startTime)
-                try printJSON(status: "error", file: nil, duration: elapsed, source: sourceName, error: error.localizedDescription)
+                try printJSON(
+                    status: "error",
+                    file: nil,
+                    duration: elapsed,
+                    source: sourceName,
+                    stopReason: nil,
+                    error: error.localizedDescription
+                )
             }
             throw error
         }
@@ -143,13 +188,21 @@ struct RecordCommand: AsyncParsableCommand {
 
     // MARK: - JSON 出力
 
-    private func printJSON(status: String, file: String?, duration: Double, source: String, error: String? = nil) throws {
+    private func printJSON(
+        status: String,
+        file: String?,
+        duration: Double,
+        source: String,
+        stopReason: String?,
+        error: String? = nil
+    ) throws {
         var dict: [String: Any] = [
             "status": status,
             "duration": (duration * 100).rounded() / 100,
             "source": source,
         ]
         if let file = file { dict["file"] = file }
+        if let stopReason = stopReason { dict["stopReason"] = stopReason }
         if let error = error { dict["error"] = error }
         let data = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
         print(String(data: data, encoding: .utf8)!)
@@ -182,6 +235,27 @@ struct RecordCommand: AsyncParsableCommand {
             return try RecordingConfiguration.load(from: defaultPath)
         }
         return RecordingConfiguration()
+    }
+
+    func validateArguments() throws {
+        let sourceSelectorCount = [
+            display != nil,
+            windowId != nil,
+            window != nil,
+            app != nil,
+        ].filter { $0 }.count
+
+        if sourceSelectorCount > 1 {
+            throw ValidationError("録画対象は --display / --window-id / --window / --app のいずれか1つだけ指定してください。")
+        }
+
+        if contentOnly, windowId == nil, window == nil, app == nil {
+            throw ValidationError("--content-only は --window-id / --window / --app のいずれかと組み合わせてください。")
+        }
+
+        if let duration, duration <= 0 {
+            throw ValidationError("--duration は 1 以上の整数を指定してください。")
+        }
     }
 
     private func resolveSource(from sources: AvailableSources) throws -> CaptureSource {
@@ -225,18 +299,108 @@ struct RecordCommand: AsyncParsableCommand {
         }
         return .display(mainDisplay)
     }
+}
 
-    private func waitForInterrupt() async {
-        await withCheckedContinuation { continuation in
-            signal(SIGINT) { _ in
-                // no-op: signal received
-            }
-            let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-            source.setEventHandler {
-                source.cancel()
-                continuation.resume()
-            }
-            source.resume()
+private enum StopReason {
+    case interrupt
+    case durationElapsed(Int)
+
+    var jsonValue: String {
+        switch self {
+        case .interrupt:
+            return "interrupt"
+        case .durationElapsed:
+            return "duration"
         }
+    }
+}
+
+private final class StopEventMonitor: @unchecked Sendable {
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "moviecapture.stop-event-monitor")
+
+    private var continuation: CheckedContinuation<StopReason, Never>?
+    private var pendingEvent: StopReason?
+    private var closed = false
+    private var signalSource: DispatchSourceSignal?
+    private var timerSource: DispatchSourceTimer?
+
+    init() {
+        signal(SIGINT, SIG_IGN)
+
+        let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: queue)
+        signalSource.setEventHandler { [weak self] in
+            self?.finish(with: .interrupt)
+        }
+        self.signalSource = signalSource
+        signalSource.resume()
+    }
+
+    func scheduleAutoStop(after duration: Int) {
+        lock.withLock {
+            guard !closed, timerSource == nil else { return }
+            let timerSource = DispatchSource.makeTimerSource(queue: queue)
+            timerSource.schedule(deadline: .now() + .seconds(duration))
+            timerSource.setEventHandler { [weak self] in
+                self?.finish(with: .durationElapsed(duration))
+            }
+            self.timerSource = timerSource
+            timerSource.resume()
+        }
+    }
+
+    func wait() async -> StopReason {
+        await withCheckedContinuation { continuation in
+            var eventToResume: StopReason?
+
+            lock.withLock {
+                if let pendingEvent {
+                    eventToResume = pendingEvent
+                    self.pendingEvent = nil
+                    closed = true
+                } else {
+                    self.continuation = continuation
+                }
+            }
+
+            if let eventToResume {
+                continuation.resume(returning: eventToResume)
+            }
+        }
+    }
+
+    func cancel() {
+        lock.withLock {
+            guard !closed else { return }
+            closed = true
+            cleanupSourcesLocked()
+        }
+    }
+
+    private func finish(with event: StopReason) {
+        var continuationToResume: CheckedContinuation<StopReason, Never>?
+
+        lock.withLock {
+            guard !closed else { return }
+            closed = true
+            cleanupSourcesLocked()
+
+            if let continuation {
+                continuationToResume = continuation
+                self.continuation = nil
+            } else {
+                pendingEvent = event
+            }
+        }
+
+        continuationToResume?.resume(returning: event)
+    }
+
+    private func cleanupSourcesLocked() {
+        signalSource?.cancel()
+        signalSource = nil
+        timerSource?.cancel()
+        timerSource = nil
+        signal(SIGINT, SIG_DFL)
     }
 }

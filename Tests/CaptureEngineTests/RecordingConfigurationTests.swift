@@ -96,6 +96,37 @@ struct RecordingConfigurationTests {
         #expect(url.deletingPathExtension().lastPathComponent == "fallback")
     }
 
+    @Test("assignGeneratedFileNameIfNeeded は生成名を固定する")
+    func assignGeneratedFileNameIfNeeded() {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = .current
+        components.year = 2024
+        components.month = 3
+        components.day = 8
+        components.hour = 0
+        components.minute = 0
+        components.second = 0
+        let date = components.date!
+        var config = RecordingConfiguration(outputDirectory: "/tmp")
+
+        let generated = config.assignGeneratedFileNameIfNeeded(date: date)
+
+        #expect(generated == "MovieCapture_2024-03-08_00-00-00")
+        #expect(config.fileName == generated)
+        #expect(config.outputFileURL().deletingPathExtension().lastPathComponent == generated)
+    }
+
+    @Test("assignGeneratedFileNameIfNeeded は既存 fileName を維持する")
+    func assignGeneratedFileNameIfNeededPreservesExistingName() {
+        var config = RecordingConfiguration(outputDirectory: "/tmp", fileName: "custom-name")
+
+        let generated = config.assignGeneratedFileNameIfNeeded(date: .distantPast)
+
+        #expect(generated == "custom-name")
+        #expect(config.fileName == "custom-name")
+    }
+
     // MARK: - YAML serialization
 
     @Test("YAMLラウンドトリップが正しい")

@@ -19,12 +19,16 @@ struct MockScreenCaptureProviderTests {
     func callCounting() async throws {
         let mock = MockScreenCaptureProvider()
         #expect(mock.availableSourcesCallCount == 0)
+        #expect(mock.captureStillImageCallCount == 0)
 
         _ = try await mock.availableSources()
         #expect(mock.availableSourcesCallCount == 1)
 
         _ = try await mock.availableSources()
         #expect(mock.availableSourcesCallCount == 2)
+
+        _ = try await mock.captureStillImage(source: .display(mock.stubbedSources.displays[0]), maxDimension: 1200)
+        #expect(mock.captureStillImageCallCount == 1)
     }
 
     @Test("エラーをスタブできる")
